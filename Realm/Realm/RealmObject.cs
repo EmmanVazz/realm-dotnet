@@ -274,6 +274,12 @@ namespace Realms
             return _objectHandle.GetNullableDateTimeOffset(_metadata.PropertyIndices[propertyName]);
         }
 
+        protected RealmInteger<T> GetRealmIntegerValue<T>(string propertyName, T value)
+            where T : struct, IComparable<T>, IFormattable, IConvertible
+        {
+            return new RealmInteger<T>(value, _objectHandle, propertyName);
+        }
+
         [SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1600:ElementsMustBeDocumented")]
         protected IList<T> GetListValue<T>(string propertyName) where T : RealmObject
         {

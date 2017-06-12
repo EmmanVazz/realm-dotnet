@@ -337,7 +337,11 @@ public partial class ModuleWeaver
                 return WeaveResult.Skipped();
             }
 
-            var realmAccessors = GetAccessors(backingType, isPrimaryKey, methodTable);
+            var backingValueAccessors = GetAccessors(backingType, isPrimaryKey, methodTable);
+            var realmIntegerGetter = new GenericInstanceMethod(_references.RealmObject_GetRealmIntegerValue) { GenericArguments = { backingType } };
+            ReplaceRealmIntegerGetter(prop, columnName, isNullable, backingValueAccessors.Getter, realmIntegerGetter);
+
+            // TODO: replace setter
         }
         else if (prop.IsIList())
         {
@@ -494,6 +498,54 @@ public partial class ModuleWeaver
         il.InsertBefore(start, il.Create(OpCodes.Ldarg_0)); // this for call
         il.InsertBefore(start, il.Create(OpCodes.Ldstr, columnName)); // [stack = this | name ]
         il.InsertBefore(start, il.Create(OpCodes.Call, getValueReference));
+        il.InsertBefore(start, il.Create(OpCodes.Ret));
+
+        Debug.Write("[get] ");
+    }
+
+    private void ReplaceRealmIntegerGetter(PropertyDefinition prop, string columnName, bool isNullable, MethodReference getBackingValueReference, MethodReference getIntegerReference)
+    {
+        // TODO: handle isNullable
+
+        // We want the final getter to look like:
+        //   if (!IsManaged) return this.<backingField>;
+        //   return base.GetRealmInteger<T>(base.GetValue<T>(<columnName>), <columnName>)
+        // This translates to
+        //   .locals init(
+        //       [0] int32 'value'
+        //   )
+        //
+        //   0: ldarg.0
+        //   1: call Realms.RealmObject.get_IsManaged
+        //   2: brfalse.s 12
+        //   3: ldarg.0
+        //   4: ldstr <columnName>
+        //   5: call Realms.RealmObject.GetValue<T>
+        //   6: stloc.0
+        //   7: ldarg.0
+        //   8: ldstr <columnName>
+        //   9: ldloc.0
+        //   10: call Realms.RealmObject.GetRealmInteger<T>
+        //   11: ret
+        //   12: IL_0021: ldarg.0
+        //   13: IL_0022: <backingField>
+        //   14: IL_0027: ret
+
+        var start = prop.GetMethod.Body.Instructions.First();
+        var il = prop.GetMethod.Body.GetILProcessor();
+
+        prop.GetMethod.Body.Variables.Add(new VariableDefinition(getBackingValueReference.ReturnType));
+        il.InsertBefore(start, il.Create(OpCodes.Ldarg_0));
+        il.InsertBefore(start, il.Create(OpCodes.Call, _references.RealmObject_get_IsManaged));
+        il.InsertBefore(start, il.Create(OpCodes.Brfalse_S, start));
+        il.InsertBefore(start, il.Create(OpCodes.Ldarg_0));
+        il.InsertBefore(start, il.Create(OpCodes.Ldstr, columnName));
+        il.InsertBefore(start, il.Create(OpCodes.Call, getBackingValueReference));
+        il.InsertBefore(start, il.Create(OpCodes.Stloc));
+        il.InsertBefore(start, il.Create(OpCodes.Ldarg_0));
+        il.InsertBefore(start, il.Create(OpCodes.Ldstr, columnName));
+        il.InsertBefore(start, il.Create(OpCodes.Ldloc_0));
+        il.InsertBefore(start, il.Create(OpCodes.Call, getIntegerReference));
         il.InsertBefore(start, il.Create(OpCodes.Ret));
 
         Debug.Write("[get] ");

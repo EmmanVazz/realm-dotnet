@@ -28,15 +28,26 @@ namespace Realms
         IComparable<T>,
         IConvertible,
         IFormattable
-        where T : IComparable, IComparable<T>, IConvertible, IFormattable
+        where T : struct, IComparable<T>, IConvertible, IFormattable
     {
-        private bool _isManaged;
         private readonly T _value;
+        private readonly ObjectHandle _objectHandle;
+        private readonly string _propertyName;
+
+        private bool IsManaged => _objectHandle != null;
 
         internal RealmInteger(T value)
         {
             _value = value;
-            _isManaged = false;
+            _objectHandle = null;
+            _propertyName = null;
+        }
+
+        internal RealmInteger(T value, ObjectHandle objectHandle, string propertyName)
+        {
+            _value = value;
+            _objectHandle = objectHandle;
+            _propertyName = propertyName;
         }
 
         public RealmInteger<T> Increment()
@@ -51,7 +62,7 @@ namespace Realms
 
         public RealmInteger<T> Increment(T value)
         {
-            if (_isManaged)
+            if (IsManaged)
             {
                 throw new NotImplementedException();
             }
@@ -153,7 +164,7 @@ namespace Realms
 
         #region Operators
 
-		public static implicit operator T(RealmInteger<T> i)
+        public static implicit operator T(RealmInteger<T> i)
         {
             return i._value;
         }

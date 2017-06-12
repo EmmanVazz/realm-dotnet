@@ -81,6 +81,8 @@ namespace RealmWeaver
 
         public TypeReference RealmObject { get; private set; }
 
+        public TypeReference RealmIntegerOfT { get; private set; }
+
         public MethodReference RealmObject_get_IsManaged { get; private set; }
 
         public MethodReference RealmObject_get_Realm { get; private set; }
@@ -92,6 +94,8 @@ namespace RealmWeaver
         public MethodReference RealmObject_SetObjectValue { get; private set; }
 
         public MethodReference RealmObject_GetListValue { get; private set; }
+
+        public MethodReference RealmObject_GetRealmIntegerValue { get; private set; }
 
         public MethodReference RealmObject_GetBacklinks { get; private set; }
 
@@ -198,6 +202,10 @@ namespace RealmWeaver
             Realm = new TypeReference("Realms", "Realm", Module, realmAssembly);
             RealmObject = new TypeReference("Realms", "RealmObject", Module, realmAssembly);
 
+            // TODO: Add constraints
+            RealmIntegerOfT = new TypeReference("Realms", "RealmInteger`1", Module, realmAssembly);
+            RealmIntegerOfT.GenericParameters.Add(new GenericParameter(RealmIntegerOfT));
+
             {
                 Realm_Add = new MethodReference("Add", Types.Void, Realm) { HasThis = true };
                 var T = new GenericParameter(Realm_Add) { Constraints = { RealmObject } };
@@ -245,6 +253,16 @@ namespace RealmWeaver
                 (RealmObject_GetBacklinks.ReturnType as GenericInstanceType).GenericArguments.Add(T);
                 RealmObject_GetBacklinks.GenericParameters.Add(T);
                 RealmObject_GetBacklinks.Parameters.Add(new ParameterDefinition(Types.String));
+            }
+
+            {
+                RealmObject_GetRealmIntegerValue = new MethodReference("GetRealmIntegerValue", new GenericInstanceType(RealmIntegerOfT), RealmObject) { HasThis = true };
+                // TODO: add constraints
+                var T = new GenericParameter(RealmObject_GetRealmIntegerValue) { Constraints = { } };
+                (RealmObject_GetRealmIntegerValue.ReturnType as GenericInstanceType).GenericArguments.Add(T);
+                RealmObject_GetRealmIntegerValue.GenericParameters.Add(T);
+                RealmObject_GetRealmIntegerValue.Parameters.Add(new ParameterDefinition(Types.String));
+                RealmObject_GetRealmIntegerValue.Parameters.Add(new ParameterDefinition(T));
             }
 
             IRealmObjectHelper = new TypeReference("Realms.Weaving", "IRealmObjectHelper", Module, realmAssembly);
