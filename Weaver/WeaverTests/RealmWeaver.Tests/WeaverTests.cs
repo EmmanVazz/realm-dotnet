@@ -29,6 +29,7 @@ using System.Reflection;
 using System.Xml.Linq;
 using Mono.Cecil;
 using NUnit.Framework;
+using Realms;
 using Realms.Weaving;
 
 namespace RealmWeaver
@@ -188,7 +189,19 @@ namespace RealmWeaver
             new object[] { "NullableInt64", 100L, null },
             new object[] { "NullableSingle", 123.123f, null },
             new object[] { "NullableDouble", 123.123, null },
-            new object[] { "NullableBoolean", true, null }
+            new object[] { "NullableBoolean", true, null },
+            new object[] { "ByteCounter", (RealmInteger<byte>)100, (byte)0 },
+            new object[] { "Int16Counter", (RealmInteger<short>)100, (short)0 },
+            new object[] { "Int32Counter", (RealmInteger<int>)100, 0 },
+            new object[] { "Int64Counter", (RealmInteger<long>)100L, 0L },
+            new object[] { "SingleCounter", (RealmInteger<float>)123.123f, 0.0f },
+            new object[] { "DoubleCounter", (RealmInteger<double>)123.123, 0.0 },
+            new object[] { "NullableByte", (RealmInteger<byte>)100, null },
+            new object[] { "NullableInt16Counter", (RealmInteger<short>)100, null },
+            new object[] { "NullableInt32Counter", (RealmInteger<int>)100, null },
+            new object[] { "NullableInt64Counter", (RealmInteger<long>)100L, null },
+            new object[] { "NullableSingleCounter", (RealmInteger<float>)123.123f, null },
+            new object[] { "NullableDoubleCounter", (RealmInteger<double>)123.123, null },
         };
 
         private static IEnumerable<object[]> RandomValues()
@@ -199,17 +212,24 @@ namespace RealmWeaver
         [TestCaseSource(nameof(RandomValues))]
         public void GetValueUnmanagedShouldGetBackingField(string typeName, object propertyValue)
         {
-            // Arrange
-            var propertyName = typeName + "Property";
-            var o = (dynamic)Activator.CreateInstance(_assembly.GetType("AssemblyToProcess.AllTypesObject"));
-            SetAutoPropertyBackingFieldValue(o, propertyName, propertyValue);
+            try
+            {
+                // Arrange
+                var propertyName = typeName + "Property";
+                var o = (dynamic)Activator.CreateInstance(_assembly.GetType("AssemblyToProcess.AllTypesObject"));
+                SetAutoPropertyBackingFieldValue(o, propertyName, propertyValue);
 
-            // Act
-            var returnedValue = GetPropertyValue(o, propertyName);
+                // Act
+                var returnedValue = GetPropertyValue(o, propertyName);
 
-            // Assert
-            Assert.That(o.LogList, Is.EqualTo(new List<string> { "IsManaged" }));
-            Assert.That(returnedValue, Is.EqualTo(propertyValue));
+                // Assert
+                Assert.That(o.LogList, Is.EqualTo(new List<string> { "IsManaged" }));
+                Assert.That(returnedValue, Is.EqualTo(propertyValue));
+            }
+            catch (Exception ex)
+            {
+                var a = ex;
+            }
         }
 
         [TestCaseSource(nameof(RandomValues))]

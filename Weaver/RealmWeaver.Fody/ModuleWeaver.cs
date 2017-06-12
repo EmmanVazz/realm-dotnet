@@ -113,18 +113,6 @@ public partial class ModuleWeaver
         NullableInt64TypeName,
     };
 
-    private static readonly IEnumerable<string> _indexableTypes = new[]
-    {
-        StringTypeName,
-        CharTypeName,
-        ByteTypeName,
-        Int16TypeName,
-        Int32TypeName,
-        Int64TypeName,
-        BooleanTypeName,
-        DateTimeOffsetTypeName
-    };
-
     private static readonly HashSet<string> RealmPropertyAttributes = new HashSet<string>
     {
         "PrimaryKeyAttribute",
@@ -172,7 +160,7 @@ public partial class ModuleWeaver
         _references = RealmWeaver.ImportedReferences.Create(ModuleDefinition);
 
         // Cache of getter and setter methods for the various types.
-        var methodTable = new Dictionary<string, Tuple<MethodReference, MethodReference>>();
+        var methodTable = new Dictionary<string, (MethodReference Getter, MethodReference Setter)>();
 
         var matchingTypes = GetMatchingTypes().ToArray();
         foreach (var type in matchingTypes)
@@ -192,7 +180,7 @@ public partial class ModuleWeaver
         submitAnalytics.Wait();
     }
 
-    private void WeaveType(TypeDefinition type, Dictionary<string, Tuple<MethodReference, MethodReference>> methodTable)
+    private void WeaveType(TypeDefinition type, Dictionary<string, (MethodReference Getter, MethodReference Setter)> methodTable)
     {
         Debug.WriteLine("Weaving " + type.Name);
 
@@ -280,7 +268,7 @@ public partial class ModuleWeaver
         WeaveReflectableType(type);
     }
 
-    private WeaveResult WeaveProperty(PropertyDefinition prop, TypeDefinition type, Dictionary<string, Tuple<MethodReference, MethodReference>> methodTable)
+    private WeaveResult WeaveProperty(PropertyDefinition prop, TypeDefinition type, Dictionary<string, (MethodReference Getter, MethodReference Setter)> methodTable)
     {
         var columnName = prop.Name;
         var mapToAttribute = prop.CustomAttributes.FirstOrDefault(a => a.AttributeType.Name == "MapToAttribute");
@@ -291,7 +279,7 @@ public partial class ModuleWeaver
 
         var backingField = prop.GetBackingField();
         var isIndexed = prop.CustomAttributes.Any(a => a.AttributeType.Name == "IndexedAttribute");
-        if (isIndexed && (!_indexableTypes.Contains(prop.PropertyType.FullName)))
+        if (isIndexed && !prop.IsIndexable())
         {
             return WeaveResult.Error($"{type.Name}.{prop.Name} is marked as [Indexed] which is only allowed on integral types as well as string, bool and DateTimeOffset, not on {prop.PropertyType.FullName}.");
         }
@@ -335,29 +323,21 @@ public partial class ModuleWeaver
                 return WeaveResult.Skipped();
             }
 
-            var typeId = prop.PropertyType.FullName + (isPrimaryKey ? " unique" : string.Empty);
-            if (!methodTable.TryGetValue(typeId, out var realmAccessors))
-            {
-                var getter = new MethodReference("Get" + _typeTable[prop.PropertyType.FullName] + "Value", prop.PropertyType, _references.RealmObject)
-                {
-                    HasThis = true,
-                    Parameters = { new ParameterDefinition(ModuleDefinition.TypeSystem.String) }
-                };
-                var setter = new MethodReference("Set" + _typeTable[prop.PropertyType.FullName] + "Value" + (isPrimaryKey ? "Unique" : string.Empty), ModuleDefinition.TypeSystem.Void, _references.RealmObject)
-                {
-                    HasThis = true,
-                    Parameters =
-                    {
-                        new ParameterDefinition(ModuleDefinition.TypeSystem.String),
-                        new ParameterDefinition(prop.PropertyType)
-                    }
-                };
+            var realmAccessors = GetAccessors(prop.PropertyType, isPrimaryKey, methodTable);
 
-                methodTable[typeId] = realmAccessors = Tuple.Create(getter, setter);
+            ReplaceGetter(prop, columnName, realmAccessors.Getter);
+            ReplaceSetter(prop, backingField, columnName, realmAccessors.Setter);
+        }
+        else if (prop.IsRealmInteger(out var isNullable, out var backingType) &&
+                 _typeTable.ContainsKey(backingType.FullName))
+        {
+            // If the property is automatic but doesn't have a setter, we should still ignore it.
+            if (prop.SetMethod == null)
+            {
+                return WeaveResult.Skipped();
             }
 
-            ReplaceGetter(prop, columnName, realmAccessors.Item1);
-            ReplaceSetter(prop, backingField, columnName, realmAccessors.Item2);
+            var realmAccessors = GetAccessors(backingType, isPrimaryKey, methodTable);
         }
         else if (prop.IsIList())
         {
@@ -450,6 +430,38 @@ public partial class ModuleWeaver
         var indexedMsg = isIndexed ? "[Indexed]" : string.Empty;
         LogDebug($"Woven {type.Name}.{prop.Name} as a {prop.PropertyType.FullName} {primaryKeyMsg} {indexedMsg}.");
         return WeaveResult.Success(prop, backingField, isPrimaryKey);
+    }
+
+    private (MethodReference Getter, MethodReference Setter) GetAccessors(TypeReference backingType, bool isPrimaryKey, IDictionary<string, (MethodReference Getter, MethodReference Setter)> methodTable)
+    {
+        var typeId = backingType.FullName + (isPrimaryKey ? " unique" : string.Empty);
+
+        if (!_typeTable.TryGetValue(backingType.FullName, out var typeName))
+        {
+            throw new NotSupportedException($"Unable to find {backingType.FullName} in _typeTable. Please report that to help@realm.io");
+        }
+
+        if (!methodTable.TryGetValue(typeId, out var realmAccessors))
+        {
+            var getter = new MethodReference($"Get{typeName}Value", backingType, _references.RealmObject)
+            {
+                HasThis = true,
+                Parameters = { new ParameterDefinition(ModuleDefinition.TypeSystem.String) }
+            };
+            var setter = new MethodReference($"Set{typeName}Value" + (isPrimaryKey ? "Unique" : string.Empty), ModuleDefinition.TypeSystem.Void, _references.RealmObject)
+            {
+                HasThis = true,
+                Parameters =
+                {
+                    new ParameterDefinition(ModuleDefinition.TypeSystem.String),
+                    new ParameterDefinition(backingType)
+                }
+            };
+
+            methodTable[typeId] = realmAccessors = (getter, setter);
+        }
+
+        return realmAccessors;
     }
 
     private void ReplaceGetter(PropertyDefinition prop, string columnName, MethodReference getValueReference)

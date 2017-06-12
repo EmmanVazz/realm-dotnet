@@ -63,9 +63,14 @@ namespace Realms
 
         public override bool Equals(object obj)
         {
-            if (obj is RealmInteger<T> other)
+            if (obj is RealmInteger<T> realmInteger)
             {
-                return Equals(other);
+                return Equals(realmInteger);
+            }
+
+            if (obj is T value)
+            {
+                return Equals(value);
             }
 
             return false;

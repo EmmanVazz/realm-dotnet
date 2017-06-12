@@ -16,10 +16,12 @@
 //
 ////////////////////////////////////////////////////////////////////////////
 
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -28,6 +30,20 @@ using static ModuleWeaver;
 [EditorBrowsable(EditorBrowsableState.Never)]
 internal static class PropertyDefinitionExtensions
 {
+    private static readonly Regex NullableRegex = new Regex("^System.Nullable`1<(?<typeName>.*)>$");
+
+    private static readonly IEnumerable<string> _indexableTypes = new[]
+    {
+        StringTypeName,
+        CharTypeName,
+        ByteTypeName,
+        Int16TypeName,
+        Int32TypeName,
+        Int64TypeName,
+        BooleanTypeName,
+        DateTimeOffsetTypeName
+    };
+
     internal static bool IsAutomatic(this PropertyDefinition property)
     {
         return property.GetMethod.CustomAttributes.Any(attr => attr.AttributeType.FullName == typeof(CompilerGeneratedAttribute).FullName);
@@ -55,7 +71,7 @@ internal static class PropertyDefinitionExtensions
 
     internal static bool IsNullable(this PropertyDefinition property)
     {
-        return property.PropertyType.Name.Contains("Nullable`1") && property.PropertyType.Namespace == "System";
+        return NullableRegex.IsMatch(property.PropertyType.FullName);
     }
 
     internal static bool IsSingle(this PropertyDefinition property)
@@ -97,6 +113,46 @@ internal static class PropertyDefinitionExtensions
     {
         Debug.Assert(property.DeclaringType.BaseType.Name == "RealmObject", "Required properties only make sense on RealmObject classes");
         return property.CustomAttributes.Any(a => a.AttributeType.Name == "RequiredAttribute");
+    }
+
+    internal static bool IsIndexable(this PropertyDefinition property)
+    {
+        Debug.Assert(property.DeclaringType.BaseType.Name == "RealmObject", "Required properties only make sense on RealmObject classes");
+        var propertyType = property.PropertyType;
+        if (property.IsRealmInteger(out var isNullable, out var backingType))
+        {
+            if (isNullable)
+            {
+                return false;
+            }
+
+            propertyType = backingType;
+        }
+
+        return _indexableTypes.Contains(propertyType.FullName);
+    }
+
+    public static bool IsRealmInteger(this PropertyDefinition property, out bool isNullable, out TypeReference backingType)
+    {
+        var nullableMatch = NullableRegex.Match(property.PropertyType.FullName);
+        isNullable = nullableMatch.Success;
+        var type = property.PropertyType;
+        if (isNullable)
+        {
+            var genericType = (GenericInstanceType)type;
+            type = genericType.GenericArguments.Single();
+        }
+
+        var result = type.Name == "RealmInteger`1" && type.Namespace == "Realms";
+        if (result)
+        {
+            var genericType = (GenericInstanceType)type;
+            backingType = genericType.GenericArguments.Single();
+            return true;
+        }
+
+        backingType = null;
+        return false;
     }
 
     private static bool IsType(this PropertyDefinition property, string name, string @namespace)
