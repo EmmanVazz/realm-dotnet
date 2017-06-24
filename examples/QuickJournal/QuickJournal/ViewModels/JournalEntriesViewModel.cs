@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows.Input;
 using Realms;
@@ -7,14 +8,24 @@ using Xamarin.Forms;
 
 namespace QuickJournal
 {
-    public class JournalEntriesViewModel
+    public class JournalEntriesViewModel : INotifyPropertyChanged
     {
         // TODO: add UI for changing that.
         private const string AuthorName = "Me";
 
         private Realm _realm;
 
-        public IEnumerable<JournalEntry> Entries { get; private set; }
+		public event PropertyChangedEventHandler PropertyChanged;
+
+		protected virtual void OnPropertyChanged(string propertyName)
+		{
+			PropertyChangedEventHandler handler = PropertyChanged;
+			if (handler != null) handler(this, new PropertyChangedEventArgs(propertyName));  
+		}
+
+		public IList<JournalEntry> Entries { get; private set; }
+
+		public JournalView RealmObject { get; set; }
 
         public ICommand AddEntryCommand { get; private set; }
 
@@ -25,40 +36,72 @@ namespace QuickJournal
         public JournalEntriesViewModel()
         {
             _realm = Realm.GetInstance();
+			Entries = new List<JournalEntry>();
 
-            Entries = _realm.All<JournalEntry>();
+			RealmObject = _realm.All<JournalView>().FirstOrDefault();
+			if (RealmObject == null)
+			{
+				var transaction = _realm.BeginWrite();
+				RealmObject = _realm.Add(new JournalView());
+				transaction.Commit();
+			}
 
+			RealmObject.PropertyChanged += RealmObject_PropertyChanged;
+			ProcessChildren();
             AddEntryCommand = new Command(AddEntry);
             DeleteEntryCommand = new Command<JournalEntry>(DeleteEntry);
         }
 
-        private void AddEntry()
-        {
-            var transaction = _realm.BeginWrite();
-            var entry = _realm.Add(new JournalEntry
-            {
-                Metadata = new EntryMetadata
-                {
-                    Date = DateTimeOffset.Now,
-                    Author = AuthorName
-                }
-            });
+		private async void AddEntry()
+		{
+			
+			await _realm.WriteAsync((realm) =>
+			{
+				var entry = realm.Add(new JournalEntry
+				{
+					Metadata = new EntryMetadata
+					{
+						Date = DateTimeOffset.Now,
+						Author = AuthorName
+					}
+				});
 
-            var page = new JournalEntryDetailsPage(new JournalEntryDetailsViewModel(entry, transaction));
+				realm.All<JournalView>().First().AddEntry(entry);
+			});
 
-            Navigation.PushAsync(page);
-        }
+			var transaction = _realm.BeginWrite();
+			var page = new JournalEntryDetailsPage(new JournalEntryDetailsViewModel(_realm.All<JournalEntry>().Last(), transaction));
 
-        internal void EditEntry(JournalEntry entry)
-        {
-            var transaction = _realm.BeginWrite();
+			await Navigation.PushAsync(page);
+		}
 
-            var page = new JournalEntryDetailsPage(new JournalEntryDetailsViewModel(entry, transaction));
+		internal void EditEntry(JournalEntry entry)
+		{
+			var transaction = _realm.BeginWrite();
 
-            Navigation.PushAsync(page);
-        }
+			var page = new JournalEntryDetailsPage(new JournalEntryDetailsViewModel(entry, transaction));
 
-        private void DeleteEntry(JournalEntry entry)
+			Navigation.PushAsync(page);
+		}
+
+		void RealmObject_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+		{
+			System.Diagnostics.Debug.WriteLine(String.Format("Property Changed {0}", e.PropertyName));
+			if (e.PropertyName == nameof(JournalView.Children))
+				ProcessChildren();
+		}
+
+		public void ProcessChildren()
+		{
+			Entries.Clear();
+			foreach (var entry in RealmObject.Children)
+			{
+				Entries.Add(entry);
+			}
+			OnPropertyChanged(nameof(Entries));
+		}
+
+		private void DeleteEntry(JournalEntry entry)
         {
             _realm.Write(() => _realm.Remove(entry));
         }
