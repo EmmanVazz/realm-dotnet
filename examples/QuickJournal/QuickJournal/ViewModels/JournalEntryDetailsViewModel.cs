@@ -17,17 +17,11 @@ namespace QuickJournal
         public JournalEntryDetailsViewModel(JournalEntry entry, Transaction transaction)
         {
             Entry = entry;
-			entry.PropertyChanged += Entry_PropertyChanged;
             _transaction = transaction;
             SaveCommand = new Command(Save);
         }
 
-		void Entry_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-		{
-			System.Diagnostics.Debug.WriteLine(string.Format("Property Changed {0}", e.PropertyName));
-		}
-
-		private void Save()
+        private void Save()
         {
             _transaction.Commit();
             Navigation.PopAsync(true);
